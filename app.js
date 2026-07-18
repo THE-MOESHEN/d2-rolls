@@ -31,8 +31,27 @@
   function perkIcon(name) {
     if (!images || /^none$/i.test(name)) return '';
     const p = images.perks[norm(name)];
-    return p ? `<img class="picon" src="${images.base}${esc(p)}" alt="" loading="lazy">` : '';
+    return p ? `<img class="picon" src="${images.base}${esc(p[0])}" alt="" loading="lazy">` : '';
   }
+  // pool perk descriptions, indexed lazily from images.poolNames
+  let poolDescMap = null;
+  function descFor(name) {
+    if (!images) return '';
+    const k = norm(name);
+    const sheet = images.perks[k];
+    if (sheet && sheet[1]) return sheet[1];
+    if (!poolDescMap && images.poolNames) {
+      poolDescMap = new Map(images.poolNames.map(p => [norm(p[0]), p[2]]));
+    }
+    return (poolDescMap && poolDescMap.get(k)) || '';
+  }
+  function poolFor(w) {
+    if (!images || !images.pools) return null;
+    const key = norm(w.name);
+    return images.pools[key] || images.pools[key.replace(/\s*\(.*\)$/, '')] || null;
+  }
+  const cleanDesc = s => s.replace(/\[[^\]]+\]\s*/g, '');
+  const ttAttr = name => descFor(name) ? ` data-pn="${esc(name)}" tabindex="0"` : '';
 
   /* ---------- data loading ---------- */
   function setChip(state, label) {
@@ -157,10 +176,12 @@
   }
 
   function renderChips() {
-    chipsEl.innerHTML =
-      `<button data-bis class="bis ${bisOnly ? 'active' : ''}" title="Only weapons on the BiS lists">★ BiS</button>` +
-      tabOrder.map(t =>
-        `<button data-tab="${esc(t)}" class="${t === activeTab ? 'active' : ''}">${esc(t)}</button>`).join('');
+    chipsEl.innerHTML = tabOrder.map(t =>
+      `<button data-tab="${esc(t)}" class="${t === activeTab ? 'active' : ''}">${esc(t)}</button>`).join('');
+    const b = $('bisBtn');
+    b.classList.toggle('active', bisOnly);
+    b.setAttribute('aria-pressed', String(bisOnly));
+    $('bisHint').classList.toggle('show', bisOnly);
   }
   const star = w => w.bis ? '<span class="star" title="On the BiS list">★</span>' : '';
 
@@ -168,15 +189,29 @@
     const meta = [w.exotic ? 'Exotic' : w.tab, w.info.find(i => i.label === 'Frame')?.value, w.info.find(i => i.label === 'Energy')?.value]
       .filter(Boolean).join(' · ');
     return `<button class="hit" data-w="${esc(w.tab)}|${esc(w.name)}">
-      ${weaponIcon(w, 38)}${tierBadge(w)}
+      ${weaponIcon(w, 44)}${tierBadge(w)}
       <span class="nm">${esc(w.name)}${star(w)}${w.variant ? `<small>${esc(w.variant)}</small>` : ''}</span>
       <span class="meta">${esc(meta)}</span>
     </button>`;
   }
 
+  function poolRows(ids, exclude) {
+    return ids
+      .map(id => images.poolNames[id])
+      .filter(p => !exclude.has(norm(p[0])))
+      .map(p => `<span class="pl"${ttAttr(p[0])}>${p[1] ? `<img class="picon" src="${images.base}${esc(p[1])}" alt="" loading="lazy">` : ''}<span>${esc(p[0])}</span></span>`)
+      .join('');
+  }
+
   function card(w) {
-    const infoBadges = w.info.map(i =>
-      `<span class="badge${i.label === 'Energy' ? ' energy-' + esc(i.value) : ''}">${esc(i.label)} <b>${esc(i.value)}</b></span>`).join('');
+    const pool = poolFor(w);
+    const poolCols = pool || [];
+    const intrinsic = poolCols.find(c => c[0] === 'Intrinsic');
+    const intrinsicName = intrinsic && images.poolNames[intrinsic[1][0]] ? images.poolNames[intrinsic[1][0]][0] : '';
+    const infoBadges = w.info.map(i => {
+      const tt = i.label === 'Frame' && intrinsicName ? ttAttr(intrinsicName) : '';
+      return `<span class="badge${i.label === 'Energy' ? ' energy-' + esc(i.value) : ''}${tt ? ' hasinfo' : ''}"${tt}>${esc(i.label)} <b>${esc(i.value)}</b></span>`;
+    }).join('');
     let body = '';
     if (w.exotic) {
       const legend = (w.legend || []);
@@ -187,17 +222,32 @@
           <span class="rating"><span class="sym ${symCls(r.value)}">${esc(r.value || '—')}</span>
           <span class="lbl">${esc(r.label)}</span></span>`).join('')}
         </div>
-        ${legend.length ? `<p class="legend">${legend.map(l => `<span><b class="${symCls(l.symbol)}">${esc(l.symbol)}</b> ${esc(l.meaning)}</span>`).join('')}</p>` : ''}`;
+        ${legend.length ? `<p class="legend">${legend.map(l => `<span><b class="${symCls(l.symbol)}">${esc(l.symbol)}</b> ${esc(l.meaning)}</span>`).join('')}</p>` : ''}
+        ${poolCols.length ? `<div class="perks">${poolCols.map(c => `
+          <div class="perkcol"><h3>${esc(c[0])}</h3><div class="pool">${poolRows(c[1], new Set())}</div></div>`).join('')}</div>` : ''}`;
     } else {
-      body = `<div class="perks">${w.perks.map(p => `
-        <div class="perkcol"><h3>${esc(p.label)}</h3><ol>
-          ${p.options.map(o => `<li>${perkIcon(o)}<span>${esc(o)}</span></li>`).join('')}
-        </ol></div>`).join('')}</div>`;
+      // merge sheet recommendations with the weapon's full pool, slot by slot
+      const nonOrigin = poolCols.filter(c => c[0] !== 'Intrinsic' && c[0] !== 'Origin Trait');
+      const SLOTS = ['Barrel', 'Mag', 'Perk 1', 'Perk 2', 'Origin Trait'];
+      const cols = SLOTS.map((slot, i) => {
+        const rec = w.perks.find(p => p.label === slot);
+        const pc = slot === 'Origin Trait' ? poolCols.find(c => c[0] === 'Origin Trait') : nonOrigin[i];
+        if (!rec && !pc) return '';
+        // pool label is more specific for non-standard archetypes (Blade, String, …)
+        const label = pc && !['Perk', 'Trait'].includes(pc[0]) && slot !== 'Perk 1' && slot !== 'Perk 2' ? pc[0] : slot;
+        const recNames = new Set((rec ? rec.options : []).map(norm));
+        const rest = pc ? poolRows(pc[1], recNames) : '';
+        return `<div class="perkcol"><h3>${esc(label)}</h3>
+          ${rec ? `<ol>${rec.options.map(o => `<li${ttAttr(o)}>${perkIcon(o)}<span>${esc(o)}</span></li>`).join('')}</ol>` : ''}
+          ${rest ? `<div class="pool">${rec ? '<span class="pool-h">Full pool</span>' : ''}${rest}</div>` : ''}
+        </div>`;
+      }).filter(Boolean);
+      body = `<div class="perks">${cols.join('')}</div>`;
     }
     const upd = updatedByTab[w.tab];
     return `<div class="card sel">
       <div class="head">
-        ${weaponIcon(w, 58)}
+        ${weaponIcon(w, 72)}
         <div class="ttl"><h2>${esc(w.name)}</h2>${w.variant ? `<div class="variant">${esc(w.variant)}</div>` : ''}</div>
         ${tierBadge(w, true)}
         <button class="close" data-close title="Close">✕</button>
@@ -259,7 +309,7 @@
     acEl.classList.add('open');
     acEl.innerHTML = acItems.map((w, i) => `
       <button class="ac-row${i === acIndex ? ' active' : ''}" data-w="${esc(w.tab)}|${esc(w.name)}">
-        ${weaponIcon(w, 30)}<span class="nm">${esc(w.name)}${star(w)}</span>
+        ${weaponIcon(w, 34)}<span class="nm">${esc(w.name)}${star(w)}</span>
         <span class="meta">${esc(w.exotic ? 'Exotic' : w.tab)}</span>${tierBadge(w)}
       </button>`).join('');
   }
@@ -316,7 +366,7 @@
       selected = null; qEl.value = '';
       render();
     }
-    if (e.target.closest('[data-bis]')) {
+    if (e.target.closest('#bisBtn')) {
       bisOnly = !bisOnly;
       selected = null;
       render();
@@ -324,6 +374,43 @@
   });
   $('refreshBtn').addEventListener('click', () => { statusEl.classList.remove('err'); statusEl.textContent = 'Refreshing…'; boot(true); });
   window.addEventListener('hashchange', () => { applyHash(); render(); });
+
+  /* ---------- perk tooltip ---------- */
+  const tipEl = document.createElement('div');
+  tipEl.className = 'tip';
+  document.body.appendChild(tipEl);
+  let tipFor = null;
+
+  function showTip(el) {
+    const name = el.dataset.pn;
+    const desc = descFor(name);
+    if (!desc) return;
+    tipFor = el;
+    tipEl.innerHTML = `<b>${esc(name)}</b>${esc(cleanDesc(desc))}`;
+    tipEl.style.display = 'block';
+    const r = el.getBoundingClientRect(), t = tipEl.getBoundingClientRect();
+    let x = Math.min(Math.max(8, r.left), innerWidth - t.width - 8);
+    let y = r.bottom + 8;
+    if (y + t.height > innerHeight - 8) y = r.top - t.height - 8;
+    tipEl.style.left = x + 'px';
+    tipEl.style.top = Math.max(8, y) + 'px';
+  }
+  function hideTip() { tipFor = null; tipEl.style.display = 'none'; }
+
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('[data-pn]');
+    if (el) showTip(el); else if (tipFor) hideTip();
+  });
+  document.addEventListener('focusin', e => {
+    const el = e.target.closest('[data-pn]');
+    if (el) showTip(el); else hideTip();
+  });
+  document.addEventListener('touchstart', e => {
+    const el = e.target.closest('[data-pn]');
+    if (el && tipFor !== el) { showTip(el); }
+    else if (!e.target.closest('.tip')) hideTip();
+  }, { passive: true });
+  window.addEventListener('scroll', hideTip, { passive: true });
 
   setInterval(() => {
     if (chipEl.classList.contains('on')) {

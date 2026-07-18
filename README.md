@@ -12,10 +12,11 @@ tier, rank and notes. A static page, no backend.
   (community sheet by **@theaegisrelic**) via the public CSV endpoints, cached
   in `localStorage` for 15 minutes. Nothing is baked in — if the sheet changes,
   the site changes.
-- **Weapon & perk icons** come from the Bungie manifest. `build-images.js`
-  resolves every name the sheet mentions to its bungie.net icon and writes
-  `images.json`; a GitHub Action re-runs it daily so newly added weapons get
-  art automatically. Icons themselves are hotlinked from bungie.net.
+- **Weapon & perk icons, perk descriptions, and full perk pools** come from the
+  Bungie manifest. `build-images.js` resolves every weapon on the sheet to its
+  newest manifest version and extracts each socket's currently-rollable plug
+  set, writing it all to `images.json`; a GitHub Action re-runs it daily.
+  Icons themselves are hotlinked from bungie.net.
 
 ## Files
 
