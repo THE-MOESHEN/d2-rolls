@@ -65,8 +65,21 @@
     });
     return best;
   }
-  function weaponIcon(w, size) {
+  // for Pantheon rows, show the shiny variant art where one exists: the
+  // collectible-less sibling def sharing the exact same perk pool
+  function displayVersion(w) {
     const v = matchVersion(w);
+    if (!v) return null;
+    const rowText = norm(((w.info.find(i => i.label === 'Source') || {}).value || '') + ' ' + (w.variant || ''));
+    if (/pantheon/.test(rowText)) {
+      const vs = versionsFor(w);
+      const shiny = vs && vs.find(s => s !== v && !s[3] && s[4] === v[4] && s[0] !== v[0]);
+      if (shiny) return shiny;
+    }
+    return v;
+  }
+  function weaponIcon(w, size) {
+    const v = displayVersion(w);
     if (!v) return '';
     const wm = v[1] ? `<img class="wm" src="${images.base}${esc(v[1])}" alt="" loading="lazy">` : '';
     return `<span class="wicon" style="--s:${size}px"><img src="${images.base}${esc(v[0])}" alt="" loading="lazy">${wm}</span>`;
