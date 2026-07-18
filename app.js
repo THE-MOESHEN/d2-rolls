@@ -1,10 +1,10 @@
-/* global SKIP_TABS, INDEX_GID, csvUrl, parseIndexTab, parseWeaponTab */
+/* global SKIP_TABS, INDEX_GID, csvUrl, parseIndexTab, parseWeaponTab, BIS_TABS, bisCsvUrl, parseBiSTab */
 (() => {
   const $ = id => document.getElementById(id);
   const chipEl = $('chip'), chipState = $('chipState'), statusEl = $('status'),
         resultsEl = $('results'), chipsEl = $('chips'), qEl = $('q'), sbEl = $('searchbox');
 
-  const CACHE_KEY = 'd2rolls:v1';
+  const CACHE_KEY = 'd2rolls:v2';
   const TTL = 15 * 60 * 1000;
 
   let weapons = [];          // all parsed weapons
@@ -12,6 +12,7 @@
   let updatedByTab = {};     // tab -> UPDATED date from the index
   let images = null;         // images.json (may fail; icons just won't show)
   let activeTab = '';        // chip filter
+  let bisOnly = false;       // ★ BiS list filter
   let selected = null;       // weapon shown as full card
   let acItems = [], acIndex = -1;
 
@@ -47,7 +48,11 @@
       } catch {}
     }
     setChip('connecting', 'syncing');
-    const idxText = await (await fetch(csvUrl(`gid=${INDEX_GID}`))).text();
+    const [idxText, bisSlotText, bisActText] = await Promise.all([
+      fetch(csvUrl(`gid=${INDEX_GID}`)).then(r => r.text()),
+      fetch(bisCsvUrl(BIS_TABS[0].gid)).then(r => r.text()).catch(() => ''),
+      fetch(bisCsvUrl(BIS_TABS[1].gid)).then(r => r.text()).catch(() => ''),
+    ]);
     const index = parseIndexTab(idxText);
     const tabs = index.filter(t => !SKIP_TABS.has(t.tab));
     let done = 0;
@@ -61,6 +66,10 @@
       weapons: perTab.flat(),
       tabOrder: tabs.map(t => t.tab),
       updatedByTab: Object.fromEntries(index.map(t => [t.tab, t.updated])),
+      bis: {
+        slot: bisSlotText ? parseBiSTab(bisSlotText, 'slot') : [],
+        activity: bisActText ? parseBiSTab(bisActText, 'activity') : [],
+      },
     };
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
     return data;
@@ -75,6 +84,7 @@
     try {
       const data = await loadData(force);
       weapons = data.weapons; tabOrder = data.tabOrder; updatedByTab = data.updatedByTab;
+      applyOverlay(weapons, data.bis);
       setChip('on', agoLabel(data.ts));
       statusEl.textContent = '';
       renderChips();
@@ -89,6 +99,37 @@
   }
 
   fetch('images.json').then(r => r.ok ? r.json() : null).then(j => { images = j; render(); }).catch(() => {});
+
+  /* ---------- BiS overlay ---------- */
+  function applyOverlay(ws, bis) {
+    if (!bis) return;
+    const entries = [
+      ...bis.slot.map(e => ({ ...e, type: 'slot' })),
+      ...bis.activity.map(e => ({ ...e, type: 'activity' })),
+    ];
+    const byKey = new Map();
+    for (const e of entries) {
+      const k = norm(e.name);
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(e);
+    }
+    const keys = [...byKey.keys()];
+    for (const w of ws) {
+      const wk = norm(w.name);
+      let list = byKey.get(wk);
+      if (!list) {
+        // sheet cells are sometimes truncated ("The Time-Worn Sp") — prefix match
+        const pk = keys.find(k => k.length >= 6 && wk.startsWith(k));
+        if (pk) list = byKey.get(pk);
+      }
+      if (!list) continue;
+      w.bis = {
+        groups: [...new Set(list.filter(e => e.type === 'slot').map(e => e.group))],
+        activities: [...new Set(list.filter(e => e.type === 'activity').map(e => e.group))],
+        craft: list.some(e => e.craft),
+      };
+    }
+  }
 
   /* ---------- search ---------- */
   function score(w, q) {
@@ -116,16 +157,19 @@
   }
 
   function renderChips() {
-    chipsEl.innerHTML = tabOrder.map(t =>
-      `<button data-tab="${esc(t)}" class="${t === activeTab ? 'active' : ''}">${esc(t)}</button>`).join('');
+    chipsEl.innerHTML =
+      `<button data-bis class="bis ${bisOnly ? 'active' : ''}" title="Only weapons on the BiS lists">★ BiS</button>` +
+      tabOrder.map(t =>
+        `<button data-tab="${esc(t)}" class="${t === activeTab ? 'active' : ''}">${esc(t)}</button>`).join('');
   }
+  const star = w => w.bis ? '<span class="star" title="On the BiS list">★</span>' : '';
 
   function hitRow(w) {
     const meta = [w.exotic ? 'Exotic' : w.tab, w.info.find(i => i.label === 'Frame')?.value, w.info.find(i => i.label === 'Energy')?.value]
       .filter(Boolean).join(' · ');
     return `<button class="hit" data-w="${esc(w.tab)}|${esc(w.name)}">
       ${weaponIcon(w, 38)}${tierBadge(w)}
-      <span class="nm">${esc(w.name)}${w.variant ? `<small>${esc(w.variant)}</small>` : ''}</span>
+      <span class="nm">${esc(w.name)}${star(w)}${w.variant ? `<small>${esc(w.variant)}</small>` : ''}</span>
       <span class="meta">${esc(meta)}</span>
     </button>`;
   }
@@ -162,6 +206,10 @@
         <span class="badge">${esc(w.exotic ? 'Exotic' : w.tab)}${w.rank ? ` <b>#${esc(w.rank)}</b>` : ''}</span>
         ${infoBadges}
       </div>
+      ${w.bis ? `<div class="bisbox">★ BiS pick${
+        w.bis.groups.length ? ` — <b>${esc(w.bis.groups.join(' · '))}</b>` : ''}${
+        w.bis.activities.length ? ` · best choice in: ${esc(w.bis.activities.join(', '))}` : ''}${
+        w.bis.craft ? ' · craftable' : ''}</div>` : ''}
       ${body}
       ${w.notes ? `<p class="notes">“${esc(w.notes)}”</p>` : ''}
       <div class="links">
@@ -178,20 +226,26 @@
       resultsEl.innerHTML = `<button class="back" data-back>← back to results</button>` + card(selected);
       return;
     }
+    const vis = w => !bisOnly || w.bis;
     if (q) {
-      const hits = search(q).slice(0, 40);
+      const hits = search(q).filter(vis).slice(0, 40);
       resultsEl.innerHTML = hits.length
         ? hits.map(hitRow).join('')
-        : `<div class="status">No weapon matching “${esc(q)}” — try fewer letters.</div>`;
+        : `<div class="status">No ${bisOnly ? 'BiS ' : ''}weapon matching “${esc(q)}” — try fewer letters.</div>`;
       return;
     }
     if (activeTab) {
-      const list = weapons.filter(w => w.tab === activeTab);
-      resultsEl.innerHTML = list.map(hitRow).join('');
+      const list = weapons.filter(w => w.tab === activeTab).filter(vis);
+      resultsEl.innerHTML = list.length ? list.map(hitRow).join('')
+        : `<div class="status">No BiS picks in ${esc(activeTab)}.</div>`;
+      return;
+    }
+    if (bisOnly) {
+      resultsEl.innerHTML = weapons.filter(w => w.bis).map(hitRow).join('');
       return;
     }
     if (weapons.length) {
-      resultsEl.innerHTML = `<div class="status">${weapons.length} weapons loaded · search above or pick a weapon type.</div>`;
+      resultsEl.innerHTML = `<div class="status">${weapons.length} weapons loaded · search above, pick a weapon type, or hit ★ BiS.</div>`;
     }
   }
 
@@ -205,7 +259,7 @@
     acEl.classList.add('open');
     acEl.innerHTML = acItems.map((w, i) => `
       <button class="ac-row${i === acIndex ? ' active' : ''}" data-w="${esc(w.tab)}|${esc(w.name)}">
-        ${weaponIcon(w, 30)}<span class="nm">${esc(w.name)}</span>
+        ${weaponIcon(w, 30)}<span class="nm">${esc(w.name)}${star(w)}</span>
         <span class="meta">${esc(w.exotic ? 'Exotic' : w.tab)}</span>${tierBadge(w)}
       </button>`).join('');
   }
@@ -260,6 +314,11 @@
     if (chip) {
       activeTab = activeTab === chip.dataset.tab ? '' : chip.dataset.tab;
       selected = null; qEl.value = '';
+      render();
+    }
+    if (e.target.closest('[data-bis]')) {
+      bisOnly = !bisOnly;
+      selected = null;
       render();
     }
   });
