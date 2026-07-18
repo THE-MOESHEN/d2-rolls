@@ -10,7 +10,8 @@
   --cut:polygon(0 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%);
 }
 *{box-sizing:border-box;} html,body{margin:0;}
-html{color-scheme:dark;}
+/* html background paints iOS overscroll (rubber-band) areas — keep it dark */
+html{color-scheme:dark;background:#0d1016;}
 body{font-family:var(--font);color:var(--text);min-height:100vh;line-height:1.55;-webkit-font-smoothing:antialiased;
   background:radial-gradient(900px 500px at 50% -200px,rgba(54,74,120,.25),transparent 70%),linear-gradient(180deg,#0d1016,#0a0c10);
   background-attachment:fixed;}
