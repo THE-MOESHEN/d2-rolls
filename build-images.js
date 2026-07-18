@@ -71,11 +71,22 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
   // 4. perk dictionary + per-weapon pools
   const perkIdx = new Map();       // norm name -> id
   const poolNames = [];            // id -> [display name, icon, desc]
+  const poolScore = new Map();     // id -> quality of the def backing it
+  const scoreDef = d =>
+    (descOf(d) ? 2 : 0) + (/enhanced/i.test(d.itemTypeDisplayName || '') ? 0 : 1);
   const addPerk = d => {
     const k = norm(d.displayProperties.name);
-    if (perkIdx.has(k)) return perkIdx.get(k);
+    if (perkIdx.has(k)) {
+      const id = perkIdx.get(k);
+      if (scoreDef(d) > poolScore.get(id)) {  // upgrade to base-tier / described def
+        poolNames[id] = [d.displayProperties.name, d.displayProperties.icon || '', descOf(d)];
+        poolScore.set(id, scoreDef(d));
+      }
+      return id;
+    }
     const id = poolNames.length;
     perkIdx.set(k, id);
+    poolScore.set(id, scoreDef(d));
     poolNames.push([d.displayProperties.name, d.displayProperties.icon || '', descOf(d)]);
     return id;
   };
@@ -131,16 +142,25 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
     if (cols.length) pools[key] = cols;
   }
 
-  // 5. sheet-perk map (icon + description), including names not found via pools
-  const perkOut = {};
+  // 5. sheet-perk map (icon + description), including names not found via pools.
+  // Several defs share a perk name (base + Enhanced tiers, reissues) — prefer
+  // the base-tier def that actually has a description.
+  const perkBest = new Map();
+  const WEAPON_PLUG = /barrels|magazines|frames|origins|scopes|blades|guards|batteries|stocks|grips|arrows|bowstrings|tubes|hafts|intrinsics/;
+  const perkScore = d =>
+    (WEAPON_PLUG.test(d.plug.plugCategoryIdentifier || '') ? 4 : 0) +
+    (descOf(d) ? 2 : 0) + (/enhanced/i.test(d.itemTypeDisplayName || '') ? 0 : 1);
   for (const hash in defs) {
     const d = defs[hash];
     const name = d.displayProperties && d.displayProperties.name;
     if (!name || !d.displayProperties.icon || !d.plug) continue;
     const key = norm(name);
-    if (sheetPerkNames.has(key) && !(key in perkOut))
-      perkOut[key] = [d.displayProperties.icon, descOf(d)];
+    if (!sheetPerkNames.has(key)) continue;
+    const cur = perkBest.get(key);
+    if (!cur || perkScore(d) > perkScore(cur)) perkBest.set(key, d);
   }
+  const perkOut = {};
+  for (const [key, d] of perkBest) perkOut[key] = [d.displayProperties.icon, descOf(d)];
 
   const wOut = {};
   for (const [key, d] of best) wOut[key] = [d.displayProperties.icon, d.iconWatermark || ''];
