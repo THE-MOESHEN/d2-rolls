@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>D2 God Roll Lookup</title>
+<meta name="description" content="Search any Destiny 2 weapon and get its best PvE rolls, live from The Aegis' community Shopping List spreadsheet." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%231b212b%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%230b0e13%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22url(%23g)%22%2F%3E%3Cpath%20fill%3D%22%23ffb833%22%20fill-rule%3D%22evenodd%22%20d%3D%22M32%206%2057%2032%2032%2058%207%2032Z%20M32%2016%2047%2032%2032%2048%2017%2032Z%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%226%22%20fill%3D%22%23ffb833%22%2F%3E%3C%2Fsvg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="chip" id="chip"><span class="dot"></span><b>Sheet data</b><span class="state" id="chipState">loading</span><button id="refreshBtn" title="Re-fetch the spreadsheet now">refresh</button></div>
+
+<div class="wrap">
+  <header>
+    <div class="kicker">Destiny 2</div>
+    <h1>God Roll Lookup</h1>
+    <p class="sub">Type a weapon, get the best PvE roll — perks in priority order, tiers and notes, pulled live from
+      <a href="https://docs.google.com/spreadsheets/d/1JM-0SlxVDAi-C6rGVlLxa-J1WGewEeL8Qvq4htWZHhY/edit" target="_blank" rel="noopener">The Aegis' Shopping List</a>.</p>
+  </header>
+
+  <div class="searchbox" id="searchbox">
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14"/></svg>
+    <input id="q" type="search" placeholder="Search a weapon… e.g. Fatebringer" autocomplete="off" spellcheck="false" autofocus />
+  </div>
+
+  <div class="chips" id="chips"></div>
+
+  <div id="status" class="status">Loading the sheet…</div>
+  <div id="results"></div>
+
+  <footer>
+    All data belongs to the community-maintained
+    <a href="https://docs.google.com/spreadsheets/d/1JM-0SlxVDAi-C6rGVlLxa-J1WGewEeL8Qvq4htWZHhY/edit" target="_blank" rel="noopener">Destiny 2 Shopping List</a>
+    by <b>@theaegisrelic</b> — this page fetches it live, so it's always as fresh as the sheet.<br />
+    Perk options are listed in order of endgame priority (top = best).
+  </footer>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
