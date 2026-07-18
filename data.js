@@ -131,6 +131,45 @@ function parseWeaponTab(tabName, text) {
   return weapons;
 }
 
+// ---- BiS overlay sheet: "(MoT) BiS PvE" picks, read-only ----
+// Both tabs are grids of repeating 5-column blocks. A row whose 2nd block cell
+// is the literal header word starts a new group (e.g. "Auto Kinetic" / "Vault of Glass").
+const BIS_SHEET_ID = '1cvVBQwo-ei2e19kEIuz9e3s5tAF309Yj5dOJOexMCRw';
+const BIS_TABS = [
+  { gid: '1845304187', kind: 'slot', label: 'BiS PvE Legendary Weapons' },
+  { gid: '1622751118', kind: 'activity', label: 'BiS PvE by Activity' },
+];
+
+function bisCsvUrl(gid) {
+  return `https://docs.google.com/spreadsheets/d/${BIS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}`;
+}
+
+// kind 'slot':    [name, elem, craft, source], header word "Elem."
+// kind 'activity':[name, slot, elem, craft],  header word "Slot"
+function parseBiSTab(text, kind) {
+  const rows = parseCSV(text);
+  const headerWord = kind === 'slot' ? 'Elem.' : 'Slot';
+  const starts = new Set();
+  for (const r of rows)
+    for (let c = 0; c + 1 < r.length; c++)
+      if ((r[c + 1] || '').trim() === headerWord) starts.add(c);
+
+  const group = {};
+  const out = [];
+  for (const r of rows) {
+    for (const c of starts) {
+      const name = (r[c] || '').trim();
+      const b = (r[c + 1] || '').trim(), x = (r[c + 2] || '').trim(), y = (r[c + 3] || '').trim();
+      if (b === headerWord) { group[c] = name; continue; }
+      if (!name || !group[c]) continue;
+      if (kind === 'slot') out.push({ name, group: group[c], elem: b, craft: x === 'TRUE', source: y });
+      else out.push({ name, group: group[c], slot: b, elem: x, craft: y === 'TRUE' });
+    }
+  }
+  return out;
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { SHEET_ID, INDEX_GID, SKIP_TABS, csvUrl, parseCSV, parseIndexTab, parseWeaponTab };
+  module.exports = { SHEET_ID, INDEX_GID, SKIP_TABS, csvUrl, parseCSV, parseIndexTab, parseWeaponTab,
+    BIS_SHEET_ID, BIS_TABS, bisCsvUrl, parseBiSTab };
 }
