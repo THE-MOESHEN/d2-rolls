@@ -3,7 +3,7 @@
 Search any Destiny 2 weapon and get its best PvE roll — perks in priority order,
 tier, rank and notes. A static page, no backend.
 
-**Live:** https://muhammadelshenawy-sketch.github.io/d2-rolls/
+**Live:** https://the-moeshen.github.io/d2-rolls/
 
 ## How it stays fresh
 
