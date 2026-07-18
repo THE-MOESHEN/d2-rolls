@@ -38,35 +38,40 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
   }
   console.log(`sheet: ${weaponNames.size} weapon names, ${sheetPerkNames.size} perk names`);
 
-  // 2. manifest tables
+  // 2. manifest tables (D2_CACHE env var points at a dir of cached copies for local runs)
   const manifest = await fetchJson(`${BUNGIE}/Platform/Destiny2/Manifest/`);
   const paths = manifest.Response.jsonWorldComponentContentPaths.en;
-  console.log('downloading item definitions…');
-  const defs = await fetchJson(BUNGIE + paths.DestinyInventoryItemDefinition);
-  console.log('downloading plug sets…');
-  const plugSets = await fetchJson(BUNGIE + paths.DestinyPlugSetDefinition);
-  console.log('downloading sandbox perks…');
-  const sandbox = await fetchJson(BUNGIE + paths.DestinySandboxPerkDefinition);
+  const table = async (tableName, cacheFile) => {
+    if (process.env.D2_CACHE) {
+      const f = path.join(process.env.D2_CACHE, cacheFile);
+      if (fs.existsSync(f)) { console.log('cache:', cacheFile); return JSON.parse(fs.readFileSync(f, 'utf8')); }
+    }
+    console.log('downloading', tableName, '…');
+    return fetchJson(BUNGIE + paths[tableName]);
+  };
+  const defs = await table('DestinyInventoryItemDefinition', 'defs.json');
+  const plugSets = await table('DestinyPlugSetDefinition', 'plugsets.json');
+  const sandbox = await table('DestinySandboxPerkDefinition', 'sandbox.json');
+  const collectibles = await table('DestinyCollectibleDefinition', 'collectibles.json');
 
   const descOf = d =>
     (d.displayProperties.description ||
      sandbox[d.perks && d.perks[0] && d.perks[0].perkHash]?.displayProperties?.description || '')
     .trim();
 
-  // 3. pick the newest def per weapon name (watermark first, then manifest index)
-  const best = new Map();
+  // 3. keep EVERY version of each weapon name (reissues, Pantheon/BRAVE-style
+  // variants, craftables) — the app matches each sheet row to the right one
+  const byName = new Map();
   for (const hash in defs) {
     const d = defs[hash];
     const name = d.displayProperties && d.displayProperties.name;
     if (!name || !d.displayProperties.icon || d.itemType !== 3) continue;
     const key = norm(name);
     if (!weaponNames.has(key)) continue;
-    const cur = best.get(key);
-    const better = !cur ||
-      (!!d.iconWatermark - !!cur.iconWatermark) > 0 ||
-      (!!d.iconWatermark === !!cur.iconWatermark && (d.index || 0) > (cur.index || 0));
-    if (better) best.set(key, d);
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key).push(d);
   }
+  for (const vs of byName.values()) vs.sort((a, b) => (b.index || 0) - (a.index || 0));
 
   // 4. perk dictionary + per-weapon pools
   const perkIdx = new Map();       // norm name -> id
@@ -106,13 +111,10 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
     return 'Perk';
   };
 
-  const pools = {};
-  const catCounts = {};
-  for (const [key, d] of best) {
-    if (!d.sockets) continue;
-    const cats = d.sockets.socketCategories || [];
+  const colsFor = d => {
+    if (!d.sockets) return null;
     const idxs = [];
-    for (const c of cats) {
+    for (const c of d.sockets.socketCategories || []) {
       if (c.socketCategoryHash === CAT_INTRINSIC) idxs.unshift(...c.socketIndexes);
       else if (c.socketCategoryHash === CAT_WEAPON_PERKS) idxs.push(...c.socketIndexes);
     }
@@ -127,7 +129,6 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
         if (!p || !p.displayProperties || !p.displayProperties.name || !p.plug) continue;
         const ident = p.plug.plugCategoryIdentifier || '';
         if (JUNK_PLUG.test(ident)) continue;
-        catCounts[ident] = (catCounts[ident] || 0) + 1;
         const nk = norm(p.displayProperties.name);
         if (seen.has(nk)) continue;  // enhanced dupes share the name
         seen.add(nk);
@@ -139,8 +140,19 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
     // two 'Trait' columns -> Perk 1 / Perk 2
     const traits = cols.filter(c => c[0] === 'Trait');
     if (traits.length >= 2) traits.forEach((c, i) => { c[0] = `Perk ${i + 1}`; });
-    if (cols.length) pools[key] = cols;
-  }
+    return cols.length ? cols : null;
+  };
+
+  // versions share identical pools constantly — dedupe into one list
+  const poolsList = [], poolSeen = new Map();
+  const poolRef = cols => {
+    if (!cols) return -1;
+    const k = JSON.stringify(cols);
+    if (poolSeen.has(k)) return poolSeen.get(k);
+    poolsList.push(cols);
+    poolSeen.set(k, poolsList.length - 1);
+    return poolsList.length - 1;
+  };
 
   // 5. sheet-perk map (icon + description), including names not found via pools.
   // Several defs share a perk name (base + Enhanced tiers, reissues) — prefer
@@ -162,19 +174,30 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
   const perkOut = {};
   for (const [key, d] of perkBest) perkOut[key] = [d.displayProperties.icon, descOf(d)];
 
+  // 6. emit versions: [icon, watermark, craftable, source words, pool index]
+  const normSrc = s => s.toLowerCase().replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim();
   const wOut = {};
-  for (const [key, d] of best) wOut[key] = [d.displayProperties.icon, d.iconWatermark || ''];
+  let multi = 0;
+  for (const [key, vs] of byName) {
+    wOut[key] = vs.map(d => {
+      const src = (collectibles[d.collectibleHash]?.sourceString || '').replace(/^source:\s*/i, '');
+      return [d.displayProperties.icon, d.iconWatermark || '',
+              d.inventory && d.inventory.recipeItemHash ? 1 : 0,
+              normSrc(src), poolRef(colsFor(d))];
+    });
+    if (vs.length > 1) multi++;
+  }
 
   const missW = [...weaponNames].filter(n => !(n in wOut));
   const missP = [...sheetPerkNames].filter(n => !(n in perkOut));
-  console.log(`matched ${Object.keys(wOut).length}/${weaponNames.size} weapons, ${Object.keys(perkOut).length}/${sheetPerkNames.size} sheet perks`);
-  console.log(`pools for ${Object.keys(pools).length} weapons, ${poolNames.length} distinct pool perks`);
+  console.log(`matched ${Object.keys(wOut).length}/${weaponNames.size} weapons (${multi} with multiple versions), ${Object.keys(perkOut).length}/${sheetPerkNames.size} sheet perks`);
+  console.log(`${poolsList.length} distinct pools, ${poolNames.length} distinct pool perks`);
   if (missW.length) console.log('unmatched weapons:', missW.join(' | '));
   if (missP.length) console.log('unmatched perks:', missP.join(' | '));
   const noDesc = poolNames.filter(p => !p[2]).length;
   console.log(`pool perks without description: ${noDesc}`);
 
-  const out = { base: BUNGIE, weapons: wOut, perks: perkOut, poolNames, pools };
+  const out = { base: BUNGIE, weapons: wOut, perks: perkOut, poolNames, poolsList };
   fs.writeFileSync(path.join(__dirname, 'images.json'), JSON.stringify(out));
   console.log('wrote images.json', (fs.statSync(path.join(__dirname, 'images.json')).size / 1024).toFixed(0) + 'KB');
 })();
