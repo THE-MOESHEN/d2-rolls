@@ -19,14 +19,57 @@
   const norm = s => s.toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim();
   const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-  /* ---------- icons ---------- */
-  function weaponIcon(w, size) {
-    if (!images) return '';
+  /* ---------- icons & version matching ---------- */
+  function versionsFor(w) {
+    if (!images) return null;
     const key = norm(w.name);
-    const hit = images.weapons[key] || images.weapons[key.replace(/\s*\(.*\)$/, '')];
-    if (!hit) return '';
-    const wm = hit[1] ? `<img class="wm" src="${images.base}${esc(hit[1])}" alt="" loading="lazy">` : '';
-    return `<span class="wicon" style="--s:${size}px"><img src="${images.base}${esc(hit[0])}" alt="" loading="lazy">${wm}</span>`;
+    return images.weapons[key] || images.weapons[key.replace(/\s*\(.*\)$/, '')] || null;
+  }
+  // a version is [icon, watermark, craftable, source words, pool index]
+  let poolSets = null;
+  function poolSet(i) {
+    if (i < 0 || !images.poolsList) return null;
+    if (!poolSets) poolSets = new Map();
+    if (!poolSets.has(i)) {
+      const s = new Set();
+      for (const [, ids] of images.poolsList[i]) for (const id of ids) s.add(norm(images.poolNames[id][0]));
+      poolSets.set(i, s);
+    }
+    return poolSets.get(i);
+  }
+  // pick the manifest version this sheet row is talking about: the one whose
+  // perk pool contains the row's recommended perks; ties broken by source
+  // text ("Pantheon" vs "King's Fall"), then craftability, then recency
+  function matchVersion(w) {
+    const vs = versionsFor(w);
+    if (!vs || !vs.length) return null;
+    if (vs.length === 1) return vs[0];
+    const recs = (w.perks || []).flatMap(p => p.options).map(norm).filter(n => n !== 'none');
+    const srcW = norm(((w.info.find(i => i.label === 'Source') || {}).value || '') + ' ' + (w.variant || ''))
+      .replace(/[^a-z0-9' ]/g, ' ').split(/\s+/)
+      .filter(t => t.length > 2 && t !== 'the' && t !== 'version');
+    const lexGt = (a, b) => {
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i];
+      return false;
+    };
+    let best = null, bs = null;
+    vs.forEach((v, pos) => {
+      const set = poolSet(v[4]);
+      const score = [
+        set ? recs.filter(r => set.has(r)).length : 0,
+        v[3] ? srcW.filter(t => v[3].includes(t)).length : 0,
+        v[3] ? 1 : 0,  // canonical releases (with a collections entry) beat limited variants
+        v[2], -pos,
+      ];
+      if (!bs || lexGt(score, bs)) { bs = score; best = v; }
+    });
+    return best;
+  }
+  function weaponIcon(w, size) {
+    const v = matchVersion(w);
+    if (!v) return '';
+    const wm = v[1] ? `<img class="wm" src="${images.base}${esc(v[1])}" alt="" loading="lazy">` : '';
+    return `<span class="wicon" style="--s:${size}px"><img src="${images.base}${esc(v[0])}" alt="" loading="lazy">${wm}</span>`;
   }
   function perkIcon(name) {
     if (!images || /^none$/i.test(name)) return '';
@@ -49,9 +92,8 @@
     return (sheet && sheet[1]) || '';
   }
   function poolFor(w) {
-    if (!images || !images.pools) return null;
-    const key = norm(w.name);
-    return images.pools[key] || images.pools[key.replace(/\s*\(.*\)$/, '')] || null;
+    const v = matchVersion(w);
+    return v && v[4] >= 0 && images.poolsList ? images.poolsList[v[4]] : null;
   }
   const cleanDesc = s => s.replace(/\[[^\]]+\]\s*/g, '');
   const ttAttr = name => descFor(name) ? ` data-pn="${esc(name)}" tabindex="0"` : '';
@@ -191,7 +233,7 @@
   function hitRow(w) {
     const meta = [w.exotic ? 'Exotic' : w.tab, w.info.find(i => i.label === 'Frame')?.value, w.info.find(i => i.label === 'Energy')?.value]
       .filter(Boolean).join(' · ');
-    return `<button class="hit" data-w="${esc(w.tab)}|${esc(w.name)}">
+    return `<button class="hit" data-w="${esc(w.tab)}|${esc(w.name)}|${esc(w.rank)}">
       ${weaponIcon(w, 44)}${tierBadge(w)}
       <span class="nm">${esc(w.name)}${star(w)}${w.variant ? `<small>${esc(w.variant)}</small>` : ''}</span>
       <span class="meta">${esc(meta)}</span>
@@ -211,10 +253,15 @@
     const poolCols = pool || [];
     const intrinsic = poolCols.find(c => c[0] === 'Intrinsic');
     const intrinsicName = intrinsic && images.poolNames[intrinsic[1][0]] ? images.poolNames[intrinsic[1][0]][0] : '';
-    const infoBadges = w.info.map(i => {
+    let infoBadges = w.info.map(i => {
       const tt = i.label === 'Frame' && intrinsicName ? ttAttr(intrinsicName) : '';
       return `<span class="badge${i.label === 'Energy' ? ' energy-' + esc(i.value) : ''}${tt ? ' hasinfo' : ''}"${tt}>${esc(i.label)} <b>${esc(i.value)}</b></span>`;
     }).join('');
+    // craftability of THIS version, from the manifest (recipe present or not)
+    const allVs = versionsFor(w), mv = matchVersion(w);
+    if (mv && allVs && allVs.some(v => v[2])) {
+      infoBadges += `<span class="badge">Craftable <b>${mv[2] ? 'Yes' : 'No — other version is'}</b></span>`;
+    }
     let body = '';
     if (w.exotic) {
       const legend = (w.legend || []);
@@ -311,7 +358,7 @@
     if (!acItems.length) { acEl.innerHTML = ''; acEl.classList.remove('open'); return; }
     acEl.classList.add('open');
     acEl.innerHTML = acItems.map((w, i) => `
-      <button class="ac-row${i === acIndex ? ' active' : ''}" data-w="${esc(w.tab)}|${esc(w.name)}">
+      <button class="ac-row${i === acIndex ? ' active' : ''}" data-w="${esc(w.tab)}|${esc(w.name)}|${esc(w.rank)}">
         ${weaponIcon(w, 34)}<span class="nm">${esc(w.name)}${star(w)}</span>
         <span class="meta">${esc(w.exotic ? 'Exotic' : w.tab)}</span>${tierBadge(w)}
       </button>`).join('');
@@ -321,13 +368,16 @@
   function select(w, fromHash) {
     selected = w;
     closeAC();
-    if (!fromHash) history.replaceState(null, '', '#w=' + encodeURIComponent(w.tab + '|' + w.name));
+    if (!fromHash) history.replaceState(null, '', '#w=' + encodeURIComponent(w.tab + '|' + w.name + '|' + w.rank));
     render();
     window.scrollTo({ top: 0 });
   }
   function findByKey(key) {
-    const [tab, name] = key.split('|');
-    return weapons.find(w => w.tab === tab && w.name === name) || weapons.find(w => w.name === name);
+    const [tab, name, rank] = key.split('|');
+    // rank disambiguates same-named rows (e.g. raid vs Pantheon versions)
+    return (rank !== undefined && weapons.find(w => w.tab === tab && w.name === name && w.rank === rank))
+      || weapons.find(w => w.tab === tab && w.name === name)
+      || weapons.find(w => w.name === name);
   }
   function applyHash() {
     const m = location.hash.match(/^#w=(.+)$/);
