@@ -38,12 +38,15 @@
   function descFor(name) {
     if (!images) return '';
     const k = norm(name);
-    const sheet = images.perks[k];
-    if (sheet && sheet[1]) return sheet[1];
     if (!poolDescMap && images.poolNames) {
       poolDescMap = new Map(images.poolNames.map(p => [norm(p[0]), p[2]]));
     }
-    return (poolDescMap && poolDescMap.get(k)) || '';
+    // pool text first: it comes from real weapon sockets (base tier, no
+    // name collisions with armor/exotic intrinsics); sheet map is fallback
+    const pool = poolDescMap && poolDescMap.get(k);
+    if (pool) return pool;
+    const sheet = images.perks[k];
+    return (sheet && sheet[1]) || '';
   }
   function poolFor(w) {
     if (!images || !images.pools) return null;

@@ -64,18 +64,12 @@ h1{font-weight:700;font-size:clamp(30px,6vw,46px);letter-spacing:-.02em;margin:8
 .chips button:hover{border-color:var(--line2);color:var(--text);}
 .chips button.active{background:var(--gold-soft);border-color:var(--gold-line);color:var(--gold);}
 
-/* the gold bar — BiS filter */
-.bisbar{position:relative;overflow:hidden;flex:0 0 auto;padding:0 22px;border:1px solid #a87e22;border-radius:3px;
+/* BiS filter — plain gold rectangle */
+.bisbar{flex:0 0 auto;padding:0 22px;border:1px solid #b8861f;border-radius:3px;
   cursor:pointer;font-family:var(--font);font-weight:700;font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;
-  color:#1a1206;clip-path:var(--cut);transition:.15s;
-  background:linear-gradient(110deg,#9a7524,#ffb833 38%,#ffdf80 50%,#ffb833 62%,#9a7524);}
-.bisbar::after{content:'';position:absolute;inset:0;transform:translateX(-120%) skewX(-18deg);
-  background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.55) 50%,transparent 58%);
-  animation:gleam 3.2s ease-in-out infinite;}
-@keyframes gleam{0%,55%{transform:translateX(-120%) skewX(-18deg);}85%,100%{transform:translateX(120%) skewX(-18deg);}}
-@media (prefers-reduced-motion:reduce){.bisbar::after{animation:none;}}
-.bisbar:hover{filter:brightness(1.08);}
-.bisbar.active{box-shadow:inset 0 2px 8px rgba(58,38,0,.55),0 0 14px rgba(255,184,51,.35);outline:1px solid var(--gold);outline-offset:2px;}
+  color:#1a1206;background:var(--gold);transition:.15s;}
+.bisbar:hover{background:#ffc759;}
+.bisbar.active{box-shadow:inset 0 2px 6px rgba(58,38,0,.45);outline:1px solid var(--gold-line);outline-offset:2px;}
 .bishint{display:none;background:var(--gold-soft);border:1px solid var(--gold-line);border-radius:3px;
   padding:9px 13px;font-size:12.5px;color:var(--text);margin:-4px 0 14px;line-height:1.55;}
 .bishint.show{display:block;}
