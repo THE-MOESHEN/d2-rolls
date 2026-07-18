@@ -1,0 +1,30 @@
+name: refresh-images
+
+on:
+  schedule:
+    - cron: '17 9 * * *'   # daily — picks up icons for weapons newly added to the sheet
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node build-images.js
+      - name: Commit if changed
+        run: |
+          if ! git diff --quiet images.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add images.json
+            git commit -m "refresh weapon/perk icons"
+            git push
+          else
+            echo "images.json unchanged"
+          fi
