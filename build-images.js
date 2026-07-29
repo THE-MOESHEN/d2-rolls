@@ -23,6 +23,32 @@ const JUNK_PLUG = /tracker|memento|shader|skin|masterwork|crafting|infus|empty|m
 
 async function fetchJson(u) { return (await fetch(u)).json(); }
 
+// Bungie takes the API down for maintenance most Tuesdays (weekly reset) and the
+// manifest endpoint then returns an error envelope with no Response. Retry a few
+// times, then treat a Bungie-reported outage as a clean skip (exit 0) so the
+// daily scheduled run doesn't email a failure — tomorrow's run picks it up.
+// Anything that doesn't look like a Bungie error envelope still fails loudly.
+async function fetchManifest(retries = 3) {
+  let last;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const m = await fetchJson(`${BUNGIE}/Platform/Destiny2/Manifest/`);
+      if (m && m.ErrorCode === 1 && m.Response) return m;
+      if (m && typeof m.ErrorCode === 'number') {
+        last = `${m.ErrorStatus || m.ErrorCode}: ${m.Message || ''}`;
+      } else {
+        throw new Error(`unexpected manifest shape: ${JSON.stringify(m).slice(0, 200)}`);
+      }
+    } catch (e) {
+      if (/unexpected manifest shape/.test(e.message)) throw e;
+      last = e.message; // network hiccup — retry
+    }
+    if (i < retries - 1) await new Promise(r => setTimeout(r, 60_000 * (i + 1)));
+  }
+  console.log(`Bungie API unavailable (${last}) — skipping this refresh; next scheduled run will retry.`);
+  process.exit(0);
+}
+
 (async () => {
   // 1. names the sheet references
   const idxText = await (await fetch(csvUrl(`gid=${INDEX_GID}`))).text();
@@ -39,7 +65,7 @@ async function fetchJson(u) { return (await fetch(u)).json(); }
   console.log(`sheet: ${weaponNames.size} weapon names, ${sheetPerkNames.size} perk names`);
 
   // 2. manifest tables (D2_CACHE env var points at a dir of cached copies for local runs)
-  const manifest = await fetchJson(`${BUNGIE}/Platform/Destiny2/Manifest/`);
+  const manifest = await fetchManifest();
   const paths = manifest.Response.jsonWorldComponentContentPaths.en;
   const table = async (tableName, cacheFile) => {
     if (process.env.D2_CACHE) {
